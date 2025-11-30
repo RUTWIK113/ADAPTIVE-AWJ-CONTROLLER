@@ -1,24 +1,47 @@
-# In control/ann_model.py
-
+# FILE: control/ann_model.py
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, InputLayer
+from tensorflow.keras import layers, models, optimizers
 import os
 
-# Use the modern .keras format
-MODEL_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'awj_model.keras')
+# Define where the model is saved
+MODEL_FILE = os.path.join('awj_model.keras')
 
 
-def build_ann_model():
+def build_ann_model(input_dim=5):
     """
-    Builds the 4-5-1 ANN architecture.
+    Builds a DEEP Neural Network capable of learning
+    complex non-linear physics curves (like 1/v relationships).
     """
-    model = Sequential(name="AWJ_Depth_Predictor")
-    model.add(InputLayer(shape=(4,), name="Inputs"))
-    model.add(Dense(5, activation='relu', name="Hidden_Layer"))
-    model.add(Dense(1, activation='linear', name="Output_Depth"))
-    model.compile(optimizer='adam', loss='mean_squared_error')
+    model = models.Sequential([
+        # Input Layer
+        layers.InputLayer(input_shape=(input_dim,)),
 
-    print("ANN Model Summary:")
-    model.summary()
+        # Hidden Layer 1: Wide layer to capture broad features
+        layers.Dense(256, activation='relu'),
+
+        # Hidden Layer 2: Deep layer for non-linearity
+        layers.Dense(256, activation='relu'),
+
+        # Hidden Layer 3: Narrowing down
+        layers.Dense(128, activation='relu'),
+
+        # Hidden Layer 4: Fine-tuning
+        layers.Dense(64, activation='relu'),
+
+        # Hidden Layer 5: Final processing
+        layers.Dense(32, activation='relu'),
+
+        # Output Layer: 1 neuron (Depth of Cut)
+        layers.Dense(1, activation='linear')
+    ])
+
+    # Slower learning rate (0.001) for stable convergence
+    optimizer = optimizers.Adam(learning_rate=0.001)
+
+    model.compile(
+        optimizer=optimizer,
+        loss='mean_squared_error',
+        metrics=['mae']
+    )
+
     return model

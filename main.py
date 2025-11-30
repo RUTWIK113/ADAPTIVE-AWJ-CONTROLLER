@@ -1,75 +1,167 @@
-# In main.py
 import os
 import pandas as pd
 from control.ga_optimizer import run_genetic_algorithm
+from vision.monitoring import measure_nozzle_diameter
+from verify_params import verify_parameters_with_llm
 
-# --- 1. DEFINE YOUR REAL-WORLD INPUTS HERE ---
+# --- 1. CONFIGURATION & RANGES ---
 
-# This is the 4th input your 81-point dataset uses.
-# Change this variable tomorrow to match your data file.
-#
-# Scenario A: "focusing_nozzle_diameter"
-# Scenario B: "orifice_diameter"
-#
-FOURTH_INPUT_COLUMN = "orifice_diameter"  # <-- CHANGE THIS TOMORROW
+# These names must match the columns in your training data
+OPTIMIZABLE_PARAMS = [
+    "P (MPa)",
+    "mf (kg/min)",
+    "v (mm/min)"
+]
 
-# Define the full range of all your parameters
-# This will be used to train the scaler correctly
+STATIC_PARAMS = [
+    "df (mm)",  # Focusing Nozzle
+    "do (mm)"  # Orifice
+]
+
+# Safe Operating Ranges for the Machine
 PARAM_RANGES = {
-    "water_pressure": [100.0, 4000.0],  # Use the widest possible range (Bar/MPa)
-    "abrasive_flow": [0.1, 1.0],  # (kg/min)
-    "traverse_speed": [100.0, 5000.0],  # (mm/min)
-    "orifice_diameter": [0.1, 0.3],  # (mm)
-    "focusing_nozzle_diameter": [0.76, 1.6]  # (mm)
+    "P (MPa)": [100.0, 400.0],
+    "mf (kg/min)": [0.1, 1.0],
+    "v (mm/min)": [100.0, 5000.0],
+    "df (mm)": [0.76, 1.6],
+    "do (mm)": [0.1, 0.3]
 }
 
-# --- 2. DEFINE YOUR SIMULATED "LIVE" PARAMETERS ---
-# Set your "live" measured diameter and desired depth
-DESIRED_DEPTH = 10.0
-LIVE_MEASURED_DIAMETER = 0.25  # <-- This is your "measured" orifice_diameter
+# Vision System Calibration
+PIXELS_TO_MM_RATIO = 0.01
 
 
 # --------------------------------------------------
 
-
 def main_control_loop():
     """
-    Main loop for the adaptive control system.
+    Main loop for the 5-Input Adaptive AWJ Control System.
     """
-    print("--- Adaptive AWJ Control System Initialized ---")
+    print("\n===============================================")
+    print("   INTELLIGENT AWJ ADAPTIVE CONTROL SYSTEM     ")
+    print("===============================================\n")
 
-    # 1. Prepare Inputs for the GA
+    # --- PHASE 1: USER INPUT ---
+    try:
+        desired_depth = float(input(">> Enter Desired Depth of Cut (mm): "))
+    except ValueError:
+        print("Invalid input. Defaulting to 10.0 mm.")
+        desired_depth = 10.0
 
-    # These are the 3 parameters the GA will optimize
-    optimizable_params = {
-        "water_pressure": PARAM_RANGES["water_pressure"],
-        "abrasive_flow": PARAM_RANGES["abrasive_flow"],
-        "traverse_speed": PARAM_RANGES["traverse_speed"]
+    # --- PHASE 2: MACHINE MONITORING ---
+    print("\n[PHASE 2] Machine Status Monitoring")
+    print("-" * 35)
+
+    # A. Focusing Tube Diameter (df) - Option for Vision or Manual
+    use_vision = input(">> Use Vision System to measure Nozzle Wear (df)? (y/n): ").strip().lower()
+
+    df_dia = 0.72  # Default value if everything fails
+
+    if use_vision == 'y':
+        default_img = os.path.join('vision', 'test_images', 'nozzle_tip.jpg')
+        img_path = input(f">> Enter image path (Press Enter for '{default_img}'): ").strip()
+
+        if not img_path:
+            img_path = default_img
+
+        print(f"   Analyzing image: {img_path}...")
+
+        # Call the Computer Vision Module
+        inner_d, outer_d = measure_nozzle_diameter(img_path, PIXELS_TO_MM_RATIO)
+
+        if inner_d is not None:
+            print(f"   ✅ SUCCESS: Vision detected Focusing Tube (df) = {inner_d:.4f} mm")
+            df_dia = inner_d
+        else:
+            print("   ❌ FAILURE: Vision system could not detect nozzle. Switching to manual.")
+            try:
+                df_dia = float(input(f"   >> Enter Focusing Nozzle Diameter manually (df, mm): "))
+            except ValueError:
+                print("   Invalid input. Using default 0.72 mm")
+    else:
+        # Manual Input Mode
+        try:
+            df_dia = float(input(f"   >> Enter Focusing Nozzle Diameter (df, mm): "))
+        except ValueError:
+            print("   Invalid input. Using default 0.72 mm")
+
+    # B. Orifice Diameter (do) - Manual Entry
+    try:
+        do_dia = float(input(f"   >> Enter Orifice Diameter (do, mm): "))
+    except ValueError:
+        print("   Invalid input. Using default 0.24 mm")
+        do_dia = 0.24
+
+    # Pack static inputs [df, do]
+    static_inputs = [df_dia, do_dia]
+
+    # --- PHASE 3: OPTIMIZATION (GA) ---
+    print("\n[PHASE 3] Genetic Optimization")
+    print("-" * 35)
+    print(f"Target: {desired_depth} mm | State: df={df_dia}mm, do={do_dia}mm")
+
+    # Configure ranges for the optimizer
+    optimizable_params_config = {
+        name: PARAM_RANGES[name] for name in OPTIMIZABLE_PARAMS
     }
 
-    # This is the 1 static parameter we "measured"
-    static_inputs = [LIVE_MEASURED_DIAMETER]
-
-    print(f"Target Depth: {DESIRED_DEPTH} mm")
-    print(f"Measured Diameter ({FOURTH_INPUT_COLUMN}): {LIVE_MEASURED_DIAMETER} mm")
-
-    # 2. Control (Optimization) Phase
-    print("\n--- Control Phase ---")
-
+    # Run the GA
     optimal_params = run_genetic_algorithm(
-        param_ranges=optimizable_params,
+        param_ranges=optimizable_params_config,
         static_inputs=static_inputs,
-        desired_depth=DESIRED_DEPTH
+        desired_depth=desired_depth
     )
 
-    # 3. Execution Phase
-    print("\n--- Execution Phase ---")
-    print("TEST SUCCESSFUL. System would now send parameters to the AWJ controller:")
-    print(f"  SET Pressure = {optimal_params['pressure']:.2f} MPa")
-    print(f"  SET Flow Rate = {optimal_params['flow_rate']:.3f} kg/min")
-    print(f"  SET Traverse Rate = {optimal_params['traverse_rate']:.2f} mm/min")
+    # --- PHASE 4: AI VERIFICATION (LLM) ---
+    print("\n[PHASE 4] AI Safety Verification")
+    print("-" * 35)
+
+    opt_P = optimal_params['pressure']
+    opt_mf = optimal_params['flow_rate']
+    opt_v = optimal_params['traverse_rate']
+
+    # Call Gemini Agent
+    verification_json = verify_parameters_with_llm(
+        opt_P, opt_mf, opt_v,
+        df_dia, do_dia, desired_depth
+    )
+
+    # Parse Verification Result
+    is_safe = False
+    if verification_json:
+        if isinstance(verification_json, dict) and "error" in verification_json:
+            print(f"   Warning: {verification_json['error']}")
+        else:
+            verdict = verification_json.get('verdict', 'UNKNOWN')
+            confidence = verification_json.get('confidence', 'UNKNOWN')
+            reasoning = verification_json.get('reasoning', 'No details.')
+
+            print(f"   Verdict:    {verdict}")
+            print(f"   Confidence: {confidence}")
+            print(f"   Reasoning:  {reasoning}")
+
+            if verdict == "SAFE":
+                is_safe = True
+    else:
+        print("   LLM verification failed.")
+
+    # --- PHASE 5: EXECUTION ---
+    print("\n[PHASE 5] Final Execution")
+    print("=" * 35)
+
+    if is_safe:
+        print("✅ PARAMETERS APPROVED. SENDING TO CONTROLLER...")
+        print(f"   [P]  Pressure:      {opt_P:.2f} MPa")
+        print(f"   [mf] Abrasive Flow: {opt_mf:.3f} kg/min")
+        print(f"   [v]  Traverse Rate: {opt_v:.2f} mm/min")
+    else:
+        print("⚠️ PARAMETERS FLAGGED AS UNSAFE/UNCERTAIN.")
+        print("   Human intervention required before execution.")
+        print(f"   Suggested: P={opt_P:.2f}, mf={opt_mf:.3f}, v={opt_v:.2f}")
+
+    print("===============================================\n")
 
 
-# Run the main loop
+# Run the system
 if __name__ == "__main__":
     main_control_loop()
