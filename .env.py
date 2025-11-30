@@ -1,1 +1,1 @@
-GOOGLE_API_KEY=your_new_api_key_here
+GOOGLE_API_KEY= AIzaSyC9X8vV6HdAZS94Jis1-WMJPbNx0OdWSoc
