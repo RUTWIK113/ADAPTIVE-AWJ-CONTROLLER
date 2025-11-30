@@ -24,7 +24,11 @@ ALL_COLUMNS = FEATURES_LIST + [TARGET_COLUMN]
 
 # --- Gemini API Configuration ---
 # NOTE: Leave apiKey as "" - it is supplied automatically.
-API_KEY = "AIzaSyC9X8vV6HdAZS94Jis1-WMJPbNx0OdWSoc"
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # loads .env file
+API_KEY = os.getenv("API_KEY")  # reads key from environment
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={API_KEY}"
 
 
